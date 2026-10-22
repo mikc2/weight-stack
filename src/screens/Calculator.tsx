@@ -1,12 +1,15 @@
+import { useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { Barbell } from "@/components/Barbell";
+import { BarTypeSheet } from "@/components/BarTypeSheet";
+import { PlatesSheet } from "@/components/PlatesSheet";
 import { UnitToggle } from "@/components/Segmented";
 import { fmt, fmt1, fmtDiff } from "@/lib/format";
-import { BUMP_STEP, plateLook, QUICK_PICKS, type Settings } from "@/lib/gym";
+import { BAR_TYPES, BUMP_STEP, plateLook, QUICK_PICKS, type Settings } from "@/lib/gym";
 import { convert, planLoad, type Unit } from "@/lib/plates";
 
 type Props = {
   settings: Settings;
-  onPlateUnit: (unit: Unit) => void;
+  onSettings: Dispatch<SetStateAction<Settings>>;
   raw: string;
   onRaw: (raw: string) => void;
   typedUnit: Unit;
@@ -17,7 +20,7 @@ type Status = { text: string; tone: "muted" | "exact" | "closest" | "error" };
 
 export function Calculator({
   settings,
-  onPlateUnit,
+  onSettings,
   raw,
   onRaw,
   typedUnit,
@@ -28,24 +31,27 @@ export function Calculator({
   const typed = parseFloat(raw);
   const valid = !isNaN(typed);
   const converting = pu !== iu;
-  const bar = settings.bar[pu];
+  const barType = BAR_TYPES[settings.barType];
+  const bar = barType[pu];
+  const [sheet, setSheet] = useState<"bar" | "plates" | null>(null);
 
-  const plan = valid
-    ? planLoad({
-        typed,
-        typedUnit: iu,
-        plateUnit: pu,
-        bar,
-        collars: settings.collars,
-        inventory: settings.inventory[pu],
-      })
-    : null;
+  const collars = settings.collars;
+  const inventory = settings.inventory[pu];
+  // Memoized so opening a sheet doesn't rerun the knapsack.
+  const plan = useMemo(
+    () =>
+      valid
+        ? planLoad({ typed, typedUnit: iu, plateUnit: pu, bar, collars, inventory })
+        : null,
+    [valid, typed, iu, pu, bar, collars, inventory],
+  );
   const perSide = plan && plan.status !== "below-bar" ? plan.perSide : [];
 
   let status: Status = { text: "Enter a weight", tone: "muted" };
   if (plan?.status === "below-bar") {
     const back = converting ? ` ≈ ${fmt1(convert(plan.minimum, pu, iu))} ${iu}` : "";
-    status = { text: `Below bar weight (${fmt(plan.minimum)} ${pu}${back})`, tone: "error" };
+    const what = barType.group === "machine" ? "Below starting weight" : "Below bar weight";
+    status = { text: `${what} (${fmt(plan.minimum)} ${pu}${back})`, tone: "error" };
   } else if (plan?.reason === "inventory") {
     const back = converting ? ` ≈ ${fmt1(plan.loadedTyped)} ${iu}` : "";
     status = {
@@ -109,21 +115,61 @@ export function Calculator({
         label={`Barbell loaded to ${loadedLabel} ${pu}`}
         header={
           <>
-            <span id="plates-label" className="eyebrow eyebrow--small">
-              Gym plates
-            </span>
-            <UnitToggle value={pu} onChange={onPlateUnit} labelledBy="plates-label" dark />
+            <div className="field field--grow">
+              <span id="bar-label" className="field__label">
+                Bar type
+              </span>
+              <button
+                type="button"
+                className="bar-button"
+                aria-haspopup="dialog"
+                aria-labelledby="bar-label bar-current"
+                onClick={() => setSheet("bar")}
+              >
+                <span id="bar-current" className="bar-button__name">
+                  {barType.short}
+                </span>
+                <span className="bar-button__weight">
+                  {fmt(bar)} {pu}
+                  {collars ? " + collars" : ""}
+                </span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M6 9l6 6 6-6" />
+                </svg>
+              </button>
+            </div>
+            <div className="field field--end">
+              <span id="plates-label" className="field__label">
+                Plates Unit
+              </span>
+              <UnitToggle
+                value={pu}
+                onChange={(plateUnit) => onSettings((s) => ({ ...s, plateUnit }))}
+                labelledBy="plates-label"
+                dark
+              />
+            </div>
           </>
         }
       />
 
       <section className="section">
-        <div className="section__head">
+        <div className="section__head section__head--action">
           <h2 className="eyebrow">Each side · {pu}</h2>
-          <span className="muted-small">
-            Bar {fmt(bar)} {pu}
-            {settings.collars ? " + collars" : ""}
-          </span>
+          <button
+            type="button"
+            className="text-button"
+            aria-haspopup="dialog"
+            onClick={() => setSheet("plates")}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+              <path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12" />
+              <circle cx="16" cy="6" r="2" />
+              <circle cx="10" cy="12" r="2" />
+              <circle cx="18" cy="18" r="2" />
+            </svg>
+            My plates
+          </button>
         </div>
         <div className="chips">
           {groups.map((g) => (
@@ -138,7 +184,11 @@ export function Calculator({
               </span>
             </div>
           ))}
-          {groups.length === 0 && <div className="chips__empty">No plates — just the bar</div>}
+          {groups.length === 0 && (
+            <div className="chips__empty">
+              {barType.group === "machine" ? "No plates" : "No plates — just the bar"}
+            </div>
+          )}
         </div>
       </section>
 
@@ -214,6 +264,19 @@ export function Calculator({
           ))}
         </div>
       </section>
+
+      <BarTypeSheet
+        open={sheet === "bar"}
+        onClose={() => setSheet(null)}
+        value={settings.barType}
+        onChange={(barType) => onSettings((s) => ({ ...s, barType }))}
+      />
+      <PlatesSheet
+        open={sheet === "plates"}
+        onClose={() => setSheet(null)}
+        settings={settings}
+        onSettings={onSettings}
+      />
     </div>
   );
 }

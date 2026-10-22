@@ -6,18 +6,21 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-/** useState that is saved to localStorage. Storage errors are ignored. */
-export function usePersistentState<T>(key: string, initial: T) {
+/**
+ * useState that is saved to localStorage. Storage errors are ignored.
+ * `migrate` fixes up a value saved by an older version.
+ */
+export function usePersistentState<T>(key: string, initial: T, migrate?: (saved: T) => T) {
   const [value, setValue] = useState<T>(() => {
     try {
       const raw = localStorage.getItem(PREFIX + key);
       if (raw === null) return initial;
-      const parsed = JSON.parse(raw) as T;
+      let parsed = JSON.parse(raw) as T;
       // Backfill fields missing from an older saved shape with defaults.
       if (isPlainObject(initial) && isPlainObject(parsed)) {
-        return { ...initial, ...parsed } as T;
+        parsed = { ...initial, ...parsed } as T;
       }
-      return parsed;
+      return migrate ? migrate(parsed) : parsed;
     } catch {
       return initial;
     }
