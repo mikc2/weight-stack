@@ -1,10 +1,14 @@
-import { DEFAULT_SETTINGS, type Settings } from "@/lib/gym";
+import { DEFAULT_SETTINGS, migrateSettings, type Settings } from "@/lib/gym";
 import type { Unit } from "@/lib/plates";
 import { usePersistentState } from "@/lib/storage";
 import { Calculator } from "@/screens/Calculator";
 
 function App() {
-  const [settings, setSettings] = usePersistentState<Settings>("settings", DEFAULT_SETTINGS);
+  const [settings, setSettings] = usePersistentState<Settings>(
+    "settings",
+    DEFAULT_SETTINGS,
+    migrateSettings,
+  );
   const [raw, setRaw] = usePersistentState("raw", "100");
   const [typedUnit, setTypedUnit] = usePersistentState<Unit>("typedUnit", "kg");
 
@@ -13,7 +17,7 @@ function App() {
       <main className="app__main">
         <Calculator
           settings={settings}
-          onPlateUnit={(plateUnit) => setSettings((s) => ({ ...s, plateUnit }))}
+          onSettings={setSettings}
           raw={raw}
           onRaw={setRaw}
           typedUnit={typedUnit}
